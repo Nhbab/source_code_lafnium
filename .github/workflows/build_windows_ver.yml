@@ -125,15 +125,28 @@ jobs:
         with:
           ndk-version: r26b
 
-      - name: "Run Native Architecture Bootstrap Core"
+      # --- REMOVED THE BREAKING SHELL: MATRIX STATEMENTS ---
+      - name: "Bootstrap Environment (Windows)"
+        if: matrix.p.os == 'windows-latest'
+        shell: cmd
         run: |
-          python -m pip install packaging || pip3 install packaging
-          python mach bootstrap || python3 ./mach bootstrap
-        shell: ${{ matrix.p.p.os == 'windows-latest' && 'cmd' || 'bash' }}
+          python -m pip install packaging
+          python mach bootstrap
 
-      - name: "Run Native System Compiler Execution"
+      - name: "Bootstrap Environment (macOS & Linux)"
+        if: matrix.p.os != 'windows-latest'
+        run: |
+          pip3 install packaging
+          python3 ./mach bootstrap
+
+      - name: "Compile Execution (Windows)"
+        if: matrix.p.os == 'windows-latest'
+        shell: cmd
         run: ${{ matrix.p.run }}
-        shell: ${{ matrix.p.os == 'windows-latest' && 'cmd' || 'bash' }}
+
+      - name: "Compile Execution (macOS & Linux)"
+        if: matrix.p.os != 'windows-latest'
+        run: ${{ matrix.p.run }}
 
       - name: "Process Resulting File Targets Layout"
         id: locate
