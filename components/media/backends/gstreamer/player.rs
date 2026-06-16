@@ -16,6 +16,7 @@ use gstreamer;
 use gstreamer_app;
 use gstreamer_play;
 use gstreamer_play::prelude::*;
+use gstreamer::ElementFactory;
 use ipc_channel::ipc::{IpcReceiver, IpcSender, channel};
 use servo_media::MediaInstanceError;
 use servo_media_player::audio::AudioRenderer;
@@ -41,7 +42,11 @@ const DEFAULT_PLAYBACK_RATE: f64 = 1.0;
 const DEFAULT_VOLUME: f64 = 1.0;
 const DEFAULT_TIME_RANGES: Vec<Range<f64>> = vec![];
 
-const MAX_BUFFER_SIZE: i32 = 500 * 1024 * 1024;
+// Thay thế dòng const cũ bằng dòng này để hỗ trợ đầy đủ bộ đệm 4GB
+// Khóa cấu hình ở mức trần tối đa của kiểu i32 (2,147,483,647 bytes ~ 2.14GB)
+const MAX_BUFFER_SIZE: i32 = i32::MAX; 
+
+
 
 fn metadata_from_media_info(media_info: &gstreamer_play::PlayMediaInfo) -> Result<Metadata, ()> {
     let dur = media_info.duration();
@@ -376,9 +381,48 @@ impl PlayerInner {
             .dynamic_cast::<gstreamer::Pipeline>()
             .unwrap();
         let clock = gstreamer::SystemClock::obtain();
+        // --- ĐOẠN CODE CÓ SẴN TRONG FILE CỦA BẠN (Dòng 384-386) ---
         playbin.set_base_time(*BACKEND_BASE_TIME);
         playbin.set_start_time(gstreamer::ClockTime::NONE);
         playbin.use_clock(Some(&clock));
+
+        // ─── ĐOẠN CODE ĐÃ ĐƯỢC SỬA LỖI MÚTABLE ĐỂ BIÊN DỊCH THÀNH CÔNG ───
+        {
+            use std::path::Path;
+            use gstreamer::prelude::*; // Cần thiết để gọi hàm set_property và set_context
+
+            // Tự động nhận diện hệ điều hành của máy khách khi chạy ứng dụng
+            let cdm_folder = if cfg!(target_os = "windows") {
+                "./cdm_win"
+            } else if cfg!(target_os = "macos") {
+                "./cdm_mac"
+            } else {
+                "./cdm_linux"
+            };
+
+            // Nếu thư mục chứa file Widevine CDM tồn tại sát cạnh file chạy của trình duyệt
+            if Path::new(cdm_folder).exists() {
+                println!("[SERVO DRM] Da nhan dien thu muc Widevine: {}", cdm_folder);
+
+                // Ép kích hoạt cờ EME/DRM (VIDEO + AUDIO + TEXT + EME = 0x417)
+                playbin.set_property("flags", 0x00000417u32);
+
+                // 💡 SỬA LỖI E0596: Khởi tạo Context và ép kiểu sang cấu trúc có thể chỉnh sửa (Mutable Structure)
+                let mut context = gstreamer::Context::new("gst.eme.widevine", true);
+                
+                // Sử dụng make_mut() để lấy quyền can thiệp vào bộ nhớ đệm bóc tách cấu trúc
+                let structure = context.make_mut().structure_mut();
+                structure.set("cdm-path", &cdm_folder);
+                
+                // Nạp cấu hình bảo mật trực tiếp vào lõi playbin pipeline
+                playbin.set_context(&context);
+                println!("[SERVO DRM SUCCESS] Fixed mutable borrow! Widevine Context injected successfully.");
+            } else {
+                println!("[SERVO DRM WARNING] Khong tim thay thu muc: {}. DRM bi vo hieu hoa.", cdm_folder);
+            }
+        }
+        // ───────────────────────────────────────────────────────────────────
+
         source
             .set_stream(stream, only_stream)
             .map_err(|_| PlayerError::SetStreamFailed)

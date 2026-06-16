@@ -59,7 +59,7 @@ use crate::window::{
     ServoShellWindowId,
 };
 
-pub(crate) const INITIAL_WINDOW_TITLE: &str = "Servo";
+pub(crate) const INITIAL_WINDOW_TITLE: &str = "Hafnium";
 
 pub struct HeadedWindow {
     /// The egui interface that is responsible for showing the user interface elements of

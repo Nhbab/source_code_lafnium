@@ -608,29 +608,33 @@ impl UserAgentPlatform {
                 if cfg!(all(target_os = "windows", target_arch = "x86_64")) =>
             {
                 format!(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; {ARCH}rv:140.0) Servo/{SERVO_VERSION} Firefox/140.0"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Mobile; rv:123.0) Servo/1.0 (Forked-Engine) Gecko/123.0 Firefox/123.0 KAIOS/4.0"
                 )
             },
             UserAgentPlatform::Desktop if cfg!(target_os = "macos") => {
                 format!(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Servo/{SERVO_VERSION} Firefox/140.0"
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5; Mobile; rv:123.0) Servo/1.0 (Forked-Engine) Gecko/123.0 Firefox/123.0 KAIOS/4.0"
                 )
             },
             UserAgentPlatform::Desktop => {
                 format!(
-                    "Mozilla/5.0 (X11; Linux {ARCH}; rv:140.0) Servo/{SERVO_VERSION} Firefox/140.0"
+                    "Mozilla/5.0 (X11; Linux x86_64; Mobile; rv:123.0) Servo/1.0 (Forked-Engine) Galium/123.0 Firefox/123.0 KAIOS/4.0"
+
                 )
             },
             UserAgentPlatform::Android => {
                 format!(
-                    "Mozilla/5.0 (Android 10; Mobile; rv:140.0) Servo/{SERVO_VERSION} Firefox/140.0"
+                    "Mozilla/5.0 (Linux; Android 14; SmartPhone) AppleWebKit/537.36 (KHTML, like Gecko) Gallium/1.3 Lafnium/1.3 Mobile Safari/537.36"
+
                 )
             },
             UserAgentPlatform::OpenHarmony => format!(
-                "Mozilla/5.0 (OpenHarmony; Mobile; rv:140.0) Servo/{SERVO_VERSION} Firefox/140.0"
+                "Mozilla/5.0 (OpenHarmony 4.1; SmartPhone; Patch H1KO2G9) AppleWebKit/537.36 (KHTML, like Gecko) Gallium/1.3 Lafnium/1.3 Mobile Safari/537.36"
+
             ),
             UserAgentPlatform::Ios => format!(
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X; rv:140.0) Servo/{SERVO_VERSION} Firefox/140.0"
+                "Bro,Go To Safari,Nothing On This UserAgent,it Only A Frame Only"
+
             ),
         }
     }

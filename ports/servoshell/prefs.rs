@@ -112,12 +112,12 @@ impl Default for ServoShellPreferences {
             clean_shutdown: false,
             device_pixel_ratio_override: None,
             headless: false,
-            homepage: "https://servo.org".into(),
+            homepage: "servo:newtab".into(),
             initial_window_size: Size2D::new(1024, 740),
             no_native_titlebar: true,
             screen_size_override: None,
             simulate_touch_events: false,
-            searchpage: "https://duckduckgo.com/html/?q=%s".into(),
+            searchpage: "https://duckduckgo.com/?q=%s".into(),
             tracing_filter: None,
             url: None,
             output_image_path: None,
@@ -129,7 +129,7 @@ impl Default for ServoShellPreferences {
             log_filter: None,
             #[cfg(target_env = "ohos")]
             log_to_file: false,
-            experimental_preferences_enabled: false,
+            experimental_preferences_enabled: true,
         }
     }
 }
@@ -189,6 +189,7 @@ fn get_preferences(prefs_files: &[PathBuf], config_dir: &Option<PathBuf>) -> Pre
     let user_prefs_hash = user_prefs_path.map(read_prefs_file).unwrap_or_default();
 
     let apply_preferences =
+
         |preferences: &mut Preferences, preferences_hash: HashMap<String, PrefValue>| {
             for (key, value) in preferences_hash.iter() {
                 preferences.set_value(key, value.clone());
@@ -201,8 +202,14 @@ fn get_preferences(prefs_files: &[PathBuf], config_dir: &Option<PathBuf>) -> Pre
         apply_preferences(&mut preferences, read_prefs_file(pref_file_path))
     }
 
+    // ĐOẠN THÊM VÀO: Ép bật các tính năng thử nghiệm bằng hàm được khuyến nghị
+    for pref_name in EXPERIMENTAL_PREFS {
+        preferences.set_value(pref_name, PrefValue::from_booleanish_str("true"));
+    }
+
     preferences
 }
+
 
 fn read_prefs_file<P: AsRef<Path>>(path: P) -> HashMap<String, PrefValue> {
     read_prefs_map(&read_to_string(path).expect("Error opening user prefs"))
@@ -567,7 +574,7 @@ struct CmdArgs {
 
     ///
     ///  Set the initial window size in logical (device independent) pixels.
-    #[bpaf(argument::<String>("1024x740"), parse(parse_resolution_string), fallback(None))]
+    #[bpaf(argument::<String>("1024x768"), parse(parse_resolution_string), fallback(None))]
     window_size: Option<Size2D<u32, DeviceIndependentPixel>>,
 
     /// Set js_mem_gc_zeal_level=2 and js_mem_gc_zeal_frequency=1

@@ -271,7 +271,7 @@ impl RunningAppState {
             achieved_stable_image: Default::default(),
             exit_scheduled: Default::default(),
             user_content_manager,
-            experimental_preferences_enabled,
+            experimental_preferences_enabled: Cell::new(false),
             accessibility_active: Cell::new(false),
         }
     }

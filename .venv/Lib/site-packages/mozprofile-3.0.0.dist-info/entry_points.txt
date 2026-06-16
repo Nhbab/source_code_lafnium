@@ -1,0 +1,4 @@
+[console_scripts]
+diff-profiles = mozprofile:diff_profiles
+mozprofile = mozprofile:cli
+view-profile = mozprofile:view_profile

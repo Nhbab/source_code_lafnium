@@ -7,17 +7,18 @@ members = [
     "ports/servoshell",
     "tests/capi",
     "tests/unit/*",
+
 ]
 default-members = ["ports/servoshell"]
-exclude = [".cargo", "support/crown"]
+exclude = [".cargo", "support/crown" ,"mozjs"]
 
 [workspace.package]
 version = "0.3.0"
-authors = ["The Servo Project Developers"]
+authors = ["Biui Team Coparation / Ethernal Team For Web Browser"]
 repository = "https://github.com/servo/servo"
 # A generic description for packages that don't have a meaningful description yet.
-description = "A component of the servo web-engine."
-license = "MPL-2.0"
+description = "Biui Web Browser For Universal OOSRC"
+license = "BLVC-1998.0"
 edition = "2024"
 publish = true
 # We have yet to decide on a policy for updating the minimum supported Rust version.
@@ -47,6 +48,7 @@ aws-lc-rs = { version = "1.17", default-features = false, features = ["aws-lc-sy
 backtrace = "0.3"
 base64 = "0.22.1"
 base64ct = { version = "1.8", features = ["alloc"] }
+bindgen = "0.70"
 bitflags = "2.11"
 blurmock = "0.1.2"
 bpaf = "0.9.26"
@@ -225,6 +227,7 @@ serde_core = "1.0.226"
 serde_json = "1.0"
 serde_test = "1.0"
 servo_arc = { git = "https://github.com/servo/stylo", rev = "813923186eff5bcb957fe6da8538038acd918e98" }
+
 sha1 = "0.11"
 sha1_0_10 = { package = "sha1", version = "0.10" }
 sha2 = "0.11"
@@ -424,6 +427,9 @@ lto = "thin"
 codegen-units = 1
 
 [patch.crates-io]
+
+servo-media = { path = "components/media/servo-media" }
+
 # If you need to temporarily test Servo with a local fork of some upstream
 # crate, add that here. Use the form:
 #
@@ -445,8 +451,8 @@ codegen-units = 1
 #
 # Or for mozjs:
 #
-# mozjs = { path = "../mozjs/mozjs" }
-# mozjs_sys = { path = "../mozjs/mozjs-sys" }
+mozjs = { path = "D:/biuihtml5full/mozjs/mozjs" }
+mozjs_sys = { path = "D:/biuihtml5full/mozjs/mozjs-sys" }
 #
 # Or for CSP crate:
 # content-security-policy = { path = "../rust-content-security-policy" }

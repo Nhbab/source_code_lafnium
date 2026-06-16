@@ -1,0 +1,2 @@
+[console_scripts]
+structlog = mozlog.scripts:main

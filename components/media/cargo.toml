@@ -1,0 +1,25 @@
+[package]
+name = "servo-media" # Đảm bảo tên package chính xác là servo-media
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "servo_media" # Đổi dấu gạch ngang thành gạch dưới cho thư viện Rust
+path = "lib.rs"
+
+[dependencies]
+gstreamer = { workspace = true, optional = true }
+gstreamer-app = { workspace = true, optional = true }
+gstreamer-audio = { workspace = true, optional = true }
+gstreamer-base = { workspace = true, optional = true }
+gstreamer-video = { workspace = true, optional = true }
+
+[features]
+default = []
+media-gstreamer = [
+    "dep:gstreamer",
+    "dep:gstreamer-app",
+    "dep:gstreamer-audio",
+    "dep:gstreamer-base",
+    "dep:gstreamer-video"
+]

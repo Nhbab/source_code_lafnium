@@ -13,3 +13,5 @@
 pub mod opts;
 pub mod pref_util;
 pub mod prefs;
+// Tìm hàm set hoặc hàm quản lý Opts trong components/config/lib.rs
+

@@ -1,20 +1,75 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Servo - New Tab</title>
-    <link rel="stylesheet" href="resource:///newtab.css" />
-  </head>
-  <body>
-    <a href="https://servo.org">
-      <img class="light" src="resource:///servo-color-positive-no-container.svg" draggable="false"/>
-      <img class="dark" src="resource:///servo-color-negative-no-container.svg" draggable="false"/>
-    </a>
-    <form action="https://duckduckgo.com/html/">
-      <input name="q" placeholder="Search the web…" autofocus />
-      <button type="submit">Go!</button>
-    </form>
-    <a href="https://servo.org">Home</a>
-  </body>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Tab mới - Lịch sử tìm kiếm</title>
+</head>
+<body bgcolor="#202124" text="#ffffff" link="#e8eaed" alink="#de5833" vlink="#e8eaed">
+
+    <!-- Thẻ <main> ngữ nghĩa của HTML5 chứa cấu trúc trang -->
+    <main>
+        <center>
+            
+            <br><br><br><br><br><br>
+
+            <!-- Khung Logo Google đa màu sắc -->
+            <h1>
+                <font color="#4285F4">G</font><font color="#EA4335">o</font><font color="#FBBC05">o</font><font color="#4285F4">g</font><font color="#34A853">l</font><font color="#EA4335">e</font>
+            </h1>
+
+            <br>
+
+            <!-- NÂNG CẤP CHÍNH: Form tìm kiếm tích hợp tính năng ghi nhớ lịch sử -->
+            <form action="https://duckduckgo.com" method="GET" target="_self">
+                
+                <!-- 
+                  CÁC THUỘT TÍNH ĐẶC THỦ KÍCH HOẠT LỊCH SỬ:
+                  - name="q": Định danh duy nhất để trình duyệt tạo bộ nhớ đệm (Cache) lịch sử cho ô này.
+                  - autocomplete="on": Ép buộc Web Engine mở kho lưu trữ, tự động ghi lại lịch sử khi bấm nút Go!
+                  - type="search": Thẻ HTML5 chuyên dụng thay thế cho type="text", tự động thêm nút "X" để xóa nhanh lịch sử đang gõ trên một số trình duyệt.
+                -->
+                <input 
+                    type="search" 
+                    name="q" 
+                    id="search-box"
+                    placeholder="Tìm kiếm bảo mật và lưu lịch sử tự động..." 
+                    size="50" 
+                    autocomplete="on"
+                    autofocus 
+                    required 
+                />
+                
+                <button type="submit">Go!</button>
+                
+            </form>
+
+            <br>
+            <!-- Thẻ <small> của HTML5 để hướng dẫn người dùng sử dụng tính năng lịch sử -->
+            <small><font color="#9aa0a6">💡 Mẹo: Nhấp đúp chuột vào ô tìm kiếm để xem lại lịch sử các lượt tìm kiếm trước đó.</font></small>
+
+            <br><br><br>
+
+            <!-- Thanh chứa danh sách Shortcuts lối tắt -->
+            <nav>
+                <font size="2" color="#9aa0a6"><b>LỐI TẮT TRANG WEB HÀNG ĐẦU</b></font>
+                <br><br>
+                
+                <a href="https://github.com" target="_self">
+                    <b>[🐙 GitHub]</b>
+                </a>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                <a href="https://youtube.com" target="_self">
+                    <b>[📺 YouTube]</b>
+                </a>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                <a href="https://wikipedia.org" target="_self">
+                    <b>[🌐 Wikipedia]</b>
+                </a>
+            </nav>
+
+        </center>
+    </main>
+
+</body>
 </html>
