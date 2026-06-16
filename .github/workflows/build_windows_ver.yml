@@ -1,280 +1,119 @@
-name: Servo Mega Multi-Platform Build (6 Platforms)
+name: Servo Mega Build (6 Platforms)
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Automatically runs every day at midnight
-  workflow_dispatch: # Allows manual trigger anytime via Actions UI
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write # Grants master write permissions to create releases and push code
+  contents: write
 
 jobs:
-  # STAGE 1: Safe Upstream Sync (Fixes Git Exit Code 128 & 129 Conflict Loops)
   sync-code:
-    name: Sync Source with Upstream Servo
+    name: Sync Upstream
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Local Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fetch and Merge Upstream Servo
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, token: ${{ secrets.GITHUB_TOKEN }} }
+      - name: Git Sync
         run: |
+          git config --global --add safe.directory "*"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@://github.com"
           git remote add upstream https://github.com || true
           git fetch upstream
-          git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync with upstream Servo" || echo "Merged with structural notices"
+          git merge upstream/main --allow-unrelated-histories -X ours -m "Sync" || echo "Done"
+          git push origin HEAD:${{ github.ref_name }} || echo "Up to date"
 
-      - name: Push Code Safely
-        run: |
-          git push origin HEAD:${{ github.ref_name }} || echo "Already up to date"
-
-  # STAGE 2: Parallel Safe Compilation across Multi-OS Nodes
   build:
-    name: Build for ${{ matrix.platform.name }}
+    name: Build ${{ matrix.p.name }}
     needs: sync-code
-    runs-on: ${{ matrix.platform.os }}
+    runs-on: ${{ matrix.p.os }}
     strategy:
-      fail-fast: false # Continues compiling other OS versions even if one target hits a warning
+      fail-fast: false
       matrix:
-        platform:
-          - { name: "Windows-Desktop", os: "windows-latest", env: "windows" }
-          - { name: "macOS-Desktop", os: "macos-latest", env: "macos" }
-          - { name: "Linux-Desktop", os: "ubuntu-latest", env: "linux" }
-          - { name: "OpenHarmony-ARM64", os: "ubuntu-latest", env: "ohos" }
-          - { name: "Android-APK", os: "ubuntu-latest", env: "android" }
-          - { name: "iOS-Framework", os: "macos-latest", env: "ios" }
-
+        p:
+          - { name: "Win", os: "windows-latest", env: "windows", run: "python mach build --release" }
+          - { name: "Mac", os: "macos-latest", env: "macos", run: "python3 ./mach build --release" }
+          - { name: "Lin", os: "ubuntu-latest", env: "linux", run: "python3 ./mach build --release" }
+          - { name: "Ohos", os: "ubuntu-latest", env: "ohos", run: "python3 ./mach build --release --target aarch64-unknown-linux-ohos" }
+          - { name: "And", os: "ubuntu-latest", env: "android", run: "python3 ./mach build --release --android" }
+          - { name: "iOS", os: "macos-latest", env: "ios", run: "python3 ./mach build --release --ios" }
     steps:
-    # 1. Clear massive pre-installed programs to avoid "Disk Full" runner crashes
-    - name: Free Disk Space (Windows)
-      if: matrix.platform.os == 'windows-latest'
-      shell: powershell
-      run: |
-        Remove-Item -Recurse -Force "C:\Program Files\Android" -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force "C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
+      - name: Disk Clean (Win)
+        if: matrix.p.os == 'windows-latest'
+        shell: powershell
+        run: Remove-Item -Recurse -Force "C:\Program Files\Android","C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
+      - name: Disk Clean (Unix)
+        if: matrix.p.os != 'windows-latest'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL || true
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - name: Tools (Win)
+        if: matrix.p.os == 'windows-latest'
+        uses: microsoft/setup-msbuild@v2
+      - name: Tools (Mac)
+        if: matrix.p.os == 'macos-latest'
+        run: brew install automake pkg-config cmake ninja autoconf
+      - name: Tools (Lin)
+        if: matrix.p.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Py Deps
+        run: pip install uv packaging
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'x86_64-pc-windows-msvc aarch64-unknown-linux-ohos aarch64-linux-android armv7-linux-androideabi aarch64-apple-ios x86_64-apple-ios' }
+      - uses: swatinem/rust-cache@v2
+        with: { shared-key: "servo-${{ matrix.p.env }}" }
+      - name: OHOS SDK
+        if: matrix.p.env == 'ohos'
+        run: |
+          mkdir -p $HOME/ohos-sdk && curl -L -o ohos.tgz https://harmonyos.com
+          tar -xzf ohos.tgz -C $HOME/ohos-sdk && echo "OHOS_SDK_NATIVE=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)" >> $GITHUB_ENV
+      - name: NDK SDK
+        if: matrix.p.env == 'android'
+        uses: nttld/setup-ndk@v1
+        with: { ndk-version: r26b }
+      - name: Bootstrap
+        run: |
+          python -m pip install packaging || pip3 install packaging
+          python mach bootstrap || python3 ./mach bootstrap
+        shell: ${{ matrix.p.os == 'windows-latest' && 'cmd' || 'bash' }}
+      - name: Compile
+        run: ${{ matrix.p.run }}
+        shell: ${{ matrix.p.os == 'windows-latest' && 'cmd' || 'bash' }}
+      - name: Pathing
+        id: locate
+        run: |
+          if [ "${{ matrix.p.env }}" == "windows" ]; then echo "path=target/release/servo.exe" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "macos" ] || [ "${{ matrix.p.env }}" == "linux" ]; then echo "path=target/release/servo" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "ohos" ]; then echo "path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "android" ]; then echo "path=target/aarch64-linux-android/release/libservo.so" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "ios" ]; then echo "path=target/universal/release/libservo.a" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with: { name: "srv-${{ matrix.p.env }}", path: "${{ steps.locate.outputs.path }}" }
 
-    - name: Free Disk Space (Linux & macOS)
-      if: matrix.platform.os != 'windows-latest'
-      run: |
-        if [ "$RUNNER_OS" == "Linux" ]; then
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        elif [ "$RUNNER_OS" == "macOS" ]; then
-          rm -rf /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL
-        fi
-
-    # 2. Checkout the freshly synced repository workspace
-    - name: Checkout Local Repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 1 # Shallow checkout speeds up compiler node creation
-
-    # 3. Inject native platform compiler engines
-    - name: Install Tools (Windows)
-      if: matrix.platform.os == 'windows-latest'
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Install Tools (macOS & iOS)
-      if: matrix.platform.os == 'macos-latest'
-      run: brew install automake pkg-config cmake ninja autoconf
-
-    - name: Install Tools (Linux, Android, OpenHarmony Hosts)
-      if: matrix.platform.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev \
-          libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
-
-    # 4. Configure Python Environments & VACCINATE PYTHON PACKAGING BUG
-    - name: Set up Python Engine
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        
-    - name: Install Critical Python Dependencies (Fix ModuleNotFoundError)
-      run: |
-        pip install uv
-        pip install packaging
-
-    # 5. Bootstrap Rust toolchain mapping all cross-compiling architectures flatly
-    - name: Set up Rust compiler
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: |
-          x86_64-pc-windows-msvc
-          aarch64-unknown-linux-ohos
-          aarch64-linux-android
-          armv7-linux-androideabi
-          aarch64-apple-ios
-          x86_64-apple-ios
-
-    - name: Configure Cloud Cache
-      uses: swatinem/rust-cache@v2
-      with:
-        shared-key: "servo-mega-cache-${{ matrix.platform.env }}"
-
-    # 6. Deliver special embedded SDK files for Mobile and IoT systems
-    - name: Install OpenHarmony Native SDK
-      if: matrix.platform.env == 'ohos'
-      run: |
-        mkdir -p $HOME/ohos-sdk
-        curl -L -o ohos-sdk.linux.tgz https://harmonyos.com
-        tar -xzf ohos-sdk.linux.tgz -C $HOME/ohos-sdk
-        echo "OHOS_SDK_NATIVE=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)" >> $GITHUB_ENV
-
-    - name: Set up Android NDK (For Android Target)
-      if: matrix.platform.env == 'android'
-      uses: nttld/setup-ndk@v1
-      with:
-        ndk-version: r26b
-
-    # 7. Force execution of Servo's native source bootstrap environment tool
-    - name: Run Native Source Bootstrap (Windows)
-      if: matrix.platform.os == 'windows-latest'
-      shell: cmd
-      run: |
-        python -m pip install packaging
-        python mach bootstrap
-
-    - name: Run Native Source Bootstrap (macOS & Linux)
-      if: matrix.platform.os != 'windows-latest'
-      run: |
-        pip3 install packaging
-        python3 ./mach bootstrap
-
-    # 8. Execute actual compilation scripts mapped per platform isolation rule
-    - name: Compile - Windows Desktop
-      if: matrix.platform.env == 'windows'
-      shell: cmd
-      run: python mach build --release
-
-    - name: Compile - macOS Desktop
-      if: matrix.platform.env == 'macos'
-      run: python3 ./mach build --release
-
-    - name: Compile - Linux Desktop
-      if: matrix.platform.env == 'linux'
-      run: python3 ./mach build --release
-
-    - name: Compile - OpenHarmony ARM64
-      if: matrix.platform.env == 'ohos'
-      run: python3 ./mach build --release --target aarch64-unknown-linux-ohos
-
-    - name: Compile - Android ARM64
-      if: matrix.platform.env == 'android'
-      run: python3 ./mach build --release --android
-
-    - name: Compile - iOS Framework
-      if: matrix.platform.env == 'ios'
-      run: python3 ./mach build --release --ios
-
-    # 9. Harvest raw compiled binary layouts into environment paths
-    - name: Locate Binaries & Set Artifact Path
-      id: locate
-      run: |
-        if [ "${{ matrix.platform.env }}" == "windows" ]; then
-          echo "path=target/release/servo.exe" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform.env }}" == "macos" ]; then
-          echo "path=target/release/servo" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform.env }}" == "linux" ]; then
-          echo "path=target/release/servo" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform.env }}" == "ohos" ]; then
-          echo "path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform.env }}" == "android" ]; then
-          echo "path=target/aarch64-linux-android/release/libservo.so" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform.env }}" == "ios" ]; then
-          echo "path=target/universal/release/libservo.a" >> $GITHUB_OUTPUT
-        fi
-      shell: bash
-
-    # 10. Stage files into secure multi-node cloud storage cache
-    - name: Save Artifact Temporarily
-      uses: actions/upload-artifact@v4
-      with:
-        name: servo-build-${{ matrix.platform.env }}
-        path: ${{ steps.locate.outputs.path }}
-
-  # STAGE 3: Gather Staged Assets, Wrap into Target Containers, and Publish to Releases (Bypasses Error 1)
   publish-release:
-    name: Package & Publish Real Executables
+    name: Deploy App Containers
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Create Workspace Layouts
-        run: mkdir -p ./incoming ./final-executables
-
-      - name: Download Windows Artifact
-        uses: actions/download-artifact@v4
-        with: { name: servo-build-windows, path: ./incoming/windows }
-
-      - name: Download macOS Artifact
-        uses: actions/download-artifact@v4
-        with: { name: servo-build-macos, path: ./incoming/macos }
-
-      - name: Download Linux Artifact
-        uses: actions/download-artifact@v4
-        with: { name: servo-build-linux, path: ./incoming/linux }
-
-      - name: Download OpenHarmony Artifact
-        uses: actions/download-artifact@v4
-        with: { name: servo-build-ohos, path: ./incoming/ohos }
-
-      - name: Download Android Artifact
-        uses: actions/download-artifact@v4
-        with: { name: servo-build-android, path: ./incoming/android }
-
-      - name: Download iOS Artifact
-        uses: actions/download-artifact@v4
-        with: { name: servo-build-ios, path: ./incoming/ios }
-
-      # Packaging Layer: Wraps raw libraries into real deployable installations (.apk, .hap, .exe)
-      - name: Package Applications into Executables
+      - run: mkdir -p ./in ./out ./apk/lib/arm64-v8a ./hap/libs/arm64-v8a ./ios.app
+      - uses: actions/download-artifact@v4
+        with: { path: ./in }
+      - name: Package Executables
         run: |
-          # Copy native desktop execution formats directly
-          cp ./incoming/windows/servo.exe ./final-executables/servo-windows-x64.exe || true
-          cp ./incoming/macos/servo ./final-executables/servo-mac-arm64 || true
-          cp ./incoming/linux/servo ./final-executables/servo-linux-x64 || true
-          
-          # Wrap raw Android .so into a valid deployment APK target folder structure
-          mkdir -p ./apk-structure/lib/arm64-v8a
-          cp ./incoming/android/libservo.so ./apk-structure/lib/arm64-v8a/
-          cd apk-structure && zip -r ../final-executables/servo-android-runner.apk ./* && cd ..
-
-          # Wrap raw OpenHarmony .so into a bootable HAP app container layout
-          mkdir -p ./hap-structure/libs/arm64-v8a
-          cp ./incoming/ohos/libservoshell.so ./hap-structure/libs/arm64-v8a/
-          # Wrap raw OpenHarmony .so into a bootable HAP app container layout
-          mkdir -p ./hap-structure/libs/arm64-v8a
-          cp ./incoming/ohos/libservoshell.so ./hap-structure/libs/arm64-v8a/
-          cd hap-structure && zip -r ../final-executables/servo-openharmony-app.hap ./* && cd ..
-
-          # Bundle iOS target elements into standard Apple bundle folders
-          mkdir -p ./servo-ios.app
-          cp ./incoming/ios/libservo.a ./servo-ios.app/
-          zip -r ./final-executables/servo-ios-bundle.app.zip ./servo-ios.app
-
-      # One final, clean upload execution preventing any parallel race-condition loops
-      - name: Deploy Live Production Executables
-        uses: softprops/action-gh-release@v2
+          cp ./in/srv-windows/servo.exe ./out/servo-win.exe || true
+          cp ./in/srv-macos/servo ./out/servo-mac || true
+          cp ./in/srv-linux/servo ./out/servo-lin || true
+          cp ./in/srv-android/libservo.so ./apk/lib/arm64-v8a/ && cd apk && zip -r ../out/servo-android.apk ./* && cd .. || true
+          cp ./in/srv-ohos/libservoshell.so ./hap/libs/arm64-v8a/ && cd hap && zip -r ../out/servo-ohos.hap ./* && cd .. || true
+          cp ./in/srv-ios/libservo.a ./ios.app/ && zip -r ./out/servo-ios.app.zip ./ios.app || true
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: servo-live-executables-${{ github.run_number }}
-          name: Servo Engine Production Executables #${{ github.run_number }}
-          body: |
-            This release contains production-grade, deployable application containers.
-            
-            Executables Included:
-            * Desktop Engines: Native Windows, macOS, and Linux system run links.
-            * Mobile & Ecosystem Containers: Flashable .apk and `.hap` mobile deployment packages.
-          draft: false
-          prerelease: false
-          files: |
-            final-executables/servo-windows-x64.exe
-            final-executables/servo-mac-arm64
-            final-executables/servo-linux-x64
-            final-executables/servo-android-runner.apk
-            final-executables/servo-openharmony-app.hap
-            final-executables/servo-ios-bundle.app.zip
-            
+          tag_name: live-${{ github.run_number }}
+          name: Servo Build #${{ github.run_number }}
+          files: out/*
