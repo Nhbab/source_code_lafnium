@@ -471,7 +471,5 @@ servo-media = { path = "components/media/servo-media" }
 # Or for another Git dependency:
 #
 # [patch."https://github.com/servo/<repository>"]
-# <crate> = { path = "/path/to/local/checkout" }
-[lints.rust]
-warnings = "allow"
+# <crate> = { path = "/path/to/local/
 
