@@ -4422,17 +4422,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inherent"
-version = "1.0.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c727f80bfa4a6c6e2508d2f05b6f4bfce242030bd88ed15ae5331c5b5d30fba7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "inotify"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7308,11 +7297,10 @@ dependencies = [
 
 [[package]]
 name = "sea-query"
-version = "1.0.0-rc.31"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58decdaaaf2a698170af2fa1b2e8f7b43a970e7768bf18aebaab113bada46354"
+checksum = "8d190cfb3bcceb8a8d7d04dee5a0c77f60c7627979cdcb47fdcb8934f009badf"
 dependencies = [
- "inherent",
  "sea-query-derive",
 ]
 
@@ -12422,11 +12410,3 @@ dependencies = [
  "syn",
  "winnow",
 ]
-
-[[patch.unused]]
-name = "mozjs"
-version = "0.16.2"
-
-[[patch.unused]]
-name = "mozjs_sys"
-version = "140.11.0-1"
