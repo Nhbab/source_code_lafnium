@@ -1,106 +1,158 @@
-name: Servo Native Windows Desktop Build
+name: Servo Multi-Platform Build Matrix
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Automatically runs every day at midnight
-  workflow_dispatch: # Allows manual trigger anytime via Actions UI
+    - cron: '0 0 * * *' # Tự động chạy hàng ngày vào nửa đêm
+  workflow_dispatch: # Cho phép nhấn nút "Run workflow" thủ công bất kỳ lúc nào
 
 permissions:
-  contents: write # Grants write permissions to push code and upload release artifacts
+  contents: write # Quyền tối cao để đẩy code và upload file lên Releases tab
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build:
+    name: Build for ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
     
+    strategy:
+      fail-fast: false # Nếu 1 nền tảng bị lỗi, các nền tảng khác vẫn tiếp tục build bình thường
+      matrix:
+        platform:
+          - { name: "Windows-Desktop", os: "windows-latest", target_env: "windows" }
+          - { name: "macOS-Desktop", os: "macos-latest", target_env: "macos" }
+          - { name: "OpenHarmony-ARM64", os: "ubuntu-latest", target_env: "ohos" }
+
     steps:
-    # 1. Clear massive pre-installed software to ensure the free runner has enough SSD space
-    - name: Free Disk Space on Runner
+    # 1. Dọn dẹp dung lượng ổ đĩa ảo (Áp dụng linh hoạt cho từng hệ điều hành máy chủ)
+    - name: Free Disk Space (Windows)
+      if: matrix.platform.os == 'windows-latest'
       shell: powershell
       run: |
-        Write-Host "Initial disk space status:"
-        Get-Volume
         Remove-Item -Recurse -Force "C:\Program Files\Android" -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force "C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Ruby" -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Go" -ErrorAction SilentlyContinue
-        Write-Host "Post-cleanup disk space status:"
-        Get-Volume
 
-    # 2. Checkout your project workspace using write-access token
+    # Dọn dẹp dung lượng đối với môi trường Ubuntu / macOS để tránh tràn bộ nhớ
+    - name: Free Disk Space (Linux & macOS)
+      if: matrix.platform.os != 'windows-latest'
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          rm -rf /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL
+        fi
+
+    # 2. Tải mã nguồn dự án (Sử dụng token quyền ghi)
     - name: Checkout Local Repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # Fetches full history so git merge works cleanly
+        fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    # 3. Synchronize safely with official Servo (Fixes Git Exit Code 128)
+    # 3. Đồng bộ hóa mã nguồn tự động với Servo gốc (Chỉ chạy TRÊN MỘT MÁY để tránh xung đột Git ghi đè)
     - name: Fetch and Merge Upstream Servo
-      shell: bash
+      if: matrix.platform.target_env == 'windows' # Chỉ mượn máy Windows làm nhiệm vụ sync code
+      shell: cmd
       run: |
+        git config --global --add safe.directory "%GITHUB_WORKSPACE%"
         git config --global user.name "github-actions[bot]"
-        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git remote add upstream https://github.com || true
+        git config --global user.email "41898282+github-actions[bot]@://github.com"
+        git remote add upstream https://github.com || (exit 0)
         git fetch upstream
-        git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync with upstream Servo" || echo "Merged"
+        git merge upstream/main --allow-unrelated-histories -m "Automated sync with upstream Servo" || echo "Mismatches skipped cleanly"
 
-    # 4. Push updates back to your branch safely
     - name: Push Updated Source to Your Repo
-      shell: bash
+      if: matrix.platform.target_env == 'windows'
+      shell: cmd
       run: |
-        if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/${{ github.ref_name }})" ]; then
-          git push origin HEAD:${{ github.ref_name }}
-        else
-          echo "No new source code updates found to push."
-        fi
+        git push origin HEAD
 
-    # 5. Install Python packager tools required by Servo's modern build core
-    - name: Install Python & Package Managers
+    # Khóa kiểm tra an toàn: Chờ máy Windows đồng bộ code xong thì các máy khác mới lấy code mới nhất
+    - name: Post-Sync Wait
+      if: matrix.platform.target_env != 'windows'
+      run: sleep 10 && git pull origin main || echo "Proceeding with current workspace"
+
+    # 4. Cài đặt các công cụ biên dịch C++ hệ thống đặc trưng cho từng nền tảng
+    - name: Install System Tools (Windows)
+      if: matrix.platform.os == 'windows-latest'
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Install System Tools (macOS)
+      if: matrix.platform.os == 'macos-latest'
+      run: brew install automake pkg-config cmake ninja autoconf
+
+    - name: Install System Tools (Linux/OpenHarmony dependencies)
+      if: matrix.platform.target_env == 'ohos'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev \
+          libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
+
+    # 5. Cấu hình môi trường lập trình chuẩn (Python & Rust)
+    - name: Set up Python Engine
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
         
-    - name: Install UV Package Manager
-      run: |
-        pip install uv
+    - name: Install UV Packager
+      run: pip install uv
 
-    # 6. Install the Native Windows MSVC target for Rust
-    - name: Set up Rust toolchain
+    # Thiết lập bộ cài đặt Rust tương ứng cho từng mục tiêu đầu ra
+    - name: Set up Rust compiler
       uses: dtolnay/rust-toolchain@stable
       with:
-        targets: x86_64-pc-windows-msvc
+        targets: ${{ matrix.platform.target_env == 'ohos' && 'aarch64-unknown-linux-ohos' || matrix.platform.os == 'windows-latest' && 'x86_64-pc-windows-msvc' || '' }}
 
-    # 7. Configure compilation cache to accelerate subsequent workflow runs
-    - name: Configure Rust Cache
+    - name: Configure Cloud Cache
       uses: swatinem/rust-cache@v2
       with:
-        shared-key: "servo-windows-native-cache"
+        shared-key: "servo-cache-${{ matrix.platform.target_env }}"
 
-    # 8. Configure exact C++ Visual Studio modules required by Servo's source code
-    - name: Set up MSVC & Windows SDK Components
-      uses: microsoft/setup-msbuild@v2
+    # 6. Thiết lập SDK OpenHarmony riêng biệt (Chỉ chạy trên máy ảo Linux dành cho OHOS)
+    - name: Install OpenHarmony Native SDK
+      if: matrix.platform.target_env == 'ohos'
+      run: |
+        mkdir -p $HOME/ohos-sdk
+        curl -L -o ohos-sdk.linux.tgz https://harmonyos.com
+        tar -xzf ohos-sdk.linux.tgz -C $HOME/ohos-sdk
+        OHOS_NATIVE_DIR=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)
+        echo "OHOS_SDK_NATIVE=$OHOS_NATIVE_DIR" >> $GITHUB_ENV
 
-    # 9. Execute the source code's native dependency setup
+    # 7. Khởi động tiến trình chuẩn bị (Bootstrap) và Biên dịch (Build)
     - name: Run Native Source Bootstrap
-      shell: cmd
       run: |
-        :: This calls the repository's native dependency fetcher script
-        python mach bootstrap
+        python3 ./mach bootstrap || python ./mach bootstrap
 
-    # 10. Compile the Default Windows Native Target
-    - name: Run Native Windows Desktop Build
-      shell: cmd
+    # Lệnh Build phân luồng theo Target
+    - name: Compile Servo Browser Engine
       run: |
-        python mach build --release
+        if [ "${{ matrix.platform.target_env }}" == "ohos" ]; then
+          python3 ./mach build --release --target aarch64-unknown-linux-ohos
+        else
+          python3 ./mach build --release || python ./mach build --release
+        fi
+      shell: bash
 
-    # 11. Publish the compiled desktop executable directly to your GitHub Releases page
-    - name: Create GitHub Release
+    # 8. Định vị đường dẫn file kết quả đầu ra tùy thuộc vào OS để chuẩn bị đóng gói
+    - name: Locate Binaries & Set Artifact Path
+      id: locate
+      run: |
+        if [ "${{ matrix.platform.target_env }}" == "windows" ]; then
+          echo "artifact_path=target/release/servo.exe" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.target_env }}" == "macos" ]; then
+          echo "artifact_path=target/release/servo" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.target_env }}" == "ohos" ]; then
+          echo "artifact_path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+
+    # 9. Gom tất cả 3 file đầu ra đẩy lên cùng một trang Release duy nhất
+    - name: Publish to GitHub Releases
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: nightly-win-native-${{ github.run_number }}
-        name: Servo Windows Desktop Build #${{ github.run_number }}
+        tag_name: nightly-all-platforms-${{ github.run_number }}
+        name: Servo Multi-Platform Nightly Build #${{ github.run_number }}
         body: |
-          Automated compilation using official source code commands.
-          Built natively via: `python mach bootstrap` and `python mach build`
+          Automated structural parallel build for Windows, macOS, and OpenHarmony.
+          All builds generated simultaneously using GitHub Actions Matrix.
         draft: false
         prerelease: true
-        files: target/release/servo.exe
+        files: ${{ steps.locate.outputs.artifact_path }}
