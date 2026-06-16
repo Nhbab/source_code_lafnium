@@ -157,7 +157,7 @@ jobs:
         env:
           RUSTFLAGS: "-D warnings"
         run: |
-          .\mach build --use-crown --locked --profile ${{ inputs.profile }} ${{ inputs.build-args }}
+          .\mach build --release --profile ${{ inputs.profile }} ${{ inputs.build-args }}
           mv C:\a\servo\servo\target\cargo-timings C:\a\servo\servo\target\cargo-timings-windows
       - name: Build with vello backend (${{ inputs.profile }})
         env:
