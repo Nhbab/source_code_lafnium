@@ -117,3 +117,14 @@ jobs:
           tag_name: live-${{ github.run_number }}
           name: Servo Build #${{ github.run_number }}
           files: out/*
+          cp ./in/srv-windows/servo.exe ./out/servo-win.exe || true
+          cp ./in/srv-macos/servo ./out/servo-mac || true
+          cp ./in/srv-linux/servo ./out/servo-lin || true
+          cp ./in/srv-android/libservo.so ./apk/lib/arm64-v8a/ && cd apk && zip -r ../out/servo-android.apk ./* && cd .. || true
+          cp ./in/srv-ohos/libservoshell.so ./hap/libs/arm64-v8a/ && cd hap && zip -r ../out/servo-ohos.hap ./* && cd .. || true
+          cp ./in/srv-ios/libservo.a ./ios.app/ && zip -r ./out/servo-ios.app.zip ./ios.app || true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: live-${{ github.run_number }}
+          name: Servo Build #${{ github.run_number }}
+          files: out/*
