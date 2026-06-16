@@ -1,0 +1,76 @@
+name: Build Latest Servo Browser (Windows)
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs automatically every day at midnight
+  workflow_dispatch: # Allows manual trigger anytime via the Actions tab
+
+permissions:
+  contents: write # Crucial: Gives GitHub Actions permission to push code and create releases
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    # 1. Check out your own repository using a write-access token
+    - name: Checkout Local Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # 2. Sync your repository branch with official Servo code
+    - name: Fetch and Merge Latest Upstream Servo Changes
+      shell: bash
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@://github.com"
+        
+        git remote add upstream https://github.com
+        git fetch upstream
+        
+        # Merge official servo main branch changes
+        git merge upstream/main --allow-unrelated-histories -m "Automated sync with upstream Servo" || echo "Already up to date"
+
+    # 3. Push the fresh Servo source code back into your own repository
+    - name: Push Updated Source to Your Repo
+      shell: bash
+      run: |
+        git push origin HEAD:${{ github.ref_name }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-pc-windows-msvc
+
+    - name: Configure Rust Cache
+      uses: swatinem/rust-cache@v2
+      with:
+        shared-key: "servo-windows-cache"
+
+    - name: Add Visual Studio Build Tools to Path
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Run Windows Build Script
+      shell: cmd
+      run: |
+        python mach build --release
+
+    # 4. Publish the compiled servo.exe directly to your GitHub Releases page
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: nightly-${{ github.run_number }}
+        name: Servo Nightly Build #${{ github.run_number }}
+        body: |
+          Automated compilation of the latest Servo browser engine source code.
+          Synced directly from upstream on: ${{ github.event.repository.updated_at }}
+        draft: false
+        prerelease: true
+        files: target/release/servo.exe
