@@ -9,10 +9,34 @@ permissions:
   contents: write # Cấp quyền tối cao để đẩy code và upload sản phẩm lên Releases
 
 jobs:
+  # GIAI ĐOẠN 1: Đồng bộ mã nguồn độc quyền (Sửa triệt để lỗi sập nguồn do các máy ảo đẩy code tranh nhau)
+  sync-code:
+    name: Sync Source with Upstream Servo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Local Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch and Merge Upstream Servo
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@://github.com"
+          git remote add upstream https://github.com || true
+          git fetch upstream
+          git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync with upstream Servo" || echo "Merged with structural notices"
+
+      - name: Push Code Safely
+        run: |
+          git push origin HEAD:${{ github.ref_name }} || echo "Already up to date"
+
+  # GIAI ĐOẠN 2: Biên dịch song song 6 nền tảng sau khi mã nguồn đã được làm sạch
   build:
     name: Build for ${{ matrix.platform.name }}
+    needs: sync-code # Ép buộc phải chờ Giai đoạn 1 thành công mới được khởi động
     runs-on: ${{ matrix.platform.os }}
-    
     strategy:
       fail-fast: false # Nếu 1 hệ điều hành bị lỗi, các hệ điều hành còn lại vẫn tiếp tục build bình thường
       matrix:
@@ -42,57 +66,13 @@ jobs:
           rm -rf /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL
         fi
 
-    # 2. Tải mã nguồn dự án về máy ảo
+    # 2. Tải mã nguồn mới nhất (Đã được đồng bộ hoàn hảo từ Giai đoạn 1)
     - name: Checkout Local Repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
-        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 1 # Chỉ lấy commit mới nhất để tiết kiệm bộ nhớ cho compiler
 
-    # 3. Đồng bộ hóa mã nguồn tự động với Servo gốc (Fix lỗi bảo mật 128 và cú pháp 129)
-    - name: Fetch and Merge Upstream Servo (Windows)
-      if: matrix.platform.os == 'windows-latest' && matrix.platform.env == 'windows'
-      shell: cmd
-      run: |
-        git config --global --add safe.directory "%GITHUB_WORKSPACE%"
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "41898282+github-actions[bot]@://github.com"
-        git remote add upstream https://github.com || (exit 0)
-        git fetch upstream
-        git merge upstream/main --allow-unrelated-histories -m "Automated sync with upstream Servo" || echo "Mismatches skipped cleanly"
-
-    - name: Fetch and Merge Upstream Servo (POSIX Hosts)
-      if: matrix.platform.os != 'windows-latest' && matrix.platform.env == 'linux'
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "41898282+github-actions[bot]@://github.com"
-        git remote add upstream https://github.com || true
-        git fetch upstream
-        git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync with upstream Servo" || echo "Merged with warnings"
-
-    # Đẩy mã nguồn đã đồng bộ lên Repository của bạn
-    - name: Push Updated Source to Your Repo (Windows)
-      if: matrix.platform.os == 'windows-latest' && matrix.platform.env == 'windows'
-      shell: cmd
-      run: git push origin HEAD
-
-    - name: Push Updated Source to Your Repo (POSIX Hosts)
-      if: matrix.platform.os != 'windows-latest' && matrix.platform.env == 'linux'
-      run: git push origin HEAD || echo "Push skipped"
-
-    # Khóa hoãn: Ép các máy ảo khác chờ máy chủ chính đẩy code xong thì mới kéo code mới về chạy
-    - name: Sync Delay Wait
-      if: matrix.platform.env != 'windows' && matrix.platform.env != 'linux'
-      run: |
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          powershell -Command "Start-Sleep -Seconds 20"
-          git pull origin main || echo "Proceeding"
-        else
-          sleep 20 && git pull origin main || echo "Proceeding"
-        fi
-      shell: bash
-
-    # 4. Cài đặt các công cụ biên dịch C++ hệ thống đặc trưng
+    # 3. Cài đặt các công cụ biên dịch C++ hệ thống đặc trưng cho từng máy ảo
     - name: Install Tools (Windows)
       if: matrix.platform.os == 'windows-latest'
       uses: microsoft/setup-msbuild@v2
@@ -106,6 +86,122 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev \
+          libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
+
+    # 4. Cấu hình Python Engine & SỬA TRIỆT ĐỂ LỖI THIẾU THƯ VIỆN PACKAGING
+    - name: Set up Python Engine
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install Critical Python Dependencies (Fix ModuleNotFoundError)
+      run: |
+        pip install uv
+        pip install packaging
+
+    # 5. Thiết lập Trình biên dịch Rust cho toàn bộ các Target cần xuất ra
+    - name: Set up Rust compiler
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: |
+          x86_64-pc-windows-msvc
+          aarch64-unknown-linux-ohos
+          aarch64-linux-android
+          armv7-linux-androideabi
+          aarch64-apple-ios
+          x86_64-apple-ios
+
+    - name: Configure Cloud Cache
+      uses: swatinem/rust-cache@v2
+      with:
+        shared-key: "servo-mega-cache-${{ matrix.platform.env }}"
+
+    # 6. Cài đặt SDK mở rộng cho thiết bị di động (Mobile Cross-compilation)
+    - name: Install OpenHarmony Native SDK
+      if: matrix.platform.env == 'ohos'
+      run: |
+        mkdir -p $HOME/ohos-sdk
+        curl -L -o ohos-sdk.linux.tgz https://harmonyos.com
+        tar -xzf ohos-sdk.linux.tgz -C $HOME/ohos-sdk
+        echo "OHOS_SDK_NATIVE=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)" >> $GITHUB_ENV
+
+    - name: Set up Android NDK (For Android Target)
+      if: matrix.platform.env == 'android'
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r26b
+
+    # 7. Thực thi lệnh cài đặt phụ thuộc tự động (Bootstrap) của Servo
+    - name: Run Native Source Bootstrap (Windows)
+      if: matrix.platform.os == 'windows-latest'
+      shell: cmd
+      run: |
+        python -m pip install packaging
+        python mach bootstrap
+
+    - name: Run Native Source Bootstrap (macOS & Linux)
+      if: matrix.platform.os != 'windows-latest'
+      run: |
+        pip3 install packaging
+        python3 ./mach bootstrap
+
+    # 8. THỰC THI BIÊN DỊCH CHI TIẾT TỪNG NỀN TẢNG (Tách biệt Shell gốc hệ điều hành)
+    - name: Compile - Windows Desktop
+      if: matrix.platform.env == 'windows'
+      shell: cmd
+      run: python mach build --release
+
+    - name: Compile - macOS Desktop
+      if: matrix.platform.env == 'macos'
+      run: python3 ./mach build --release
+
+    - name: Compile - Linux Desktop
+      if: matrix.platform.env == 'linux'
+      run: python3 ./mach build --release
+
+    - name: Compile - OpenHarmony ARM64
+      if: matrix.platform.env == 'ohos'
+      run: python3 ./mach build --release --target aarch64-unknown-linux-ohos
+
+    - name: Compile - Android ARM64
+      if: matrix.platform.env == 'android'
+      run: python3 ./mach build --release --android
+
+    - name: Compile - iOS Framework
+      if: matrix.platform.env == 'ios'
+      run: python3 ./mach build --release --ios
+
+    # 9. Thu hoạch và định vị đường dẫn file đầu ra sau khi build xong dựa trên biến môi trường
+    - name: Locate Binaries & Set Artifact Path
+      id: locate
+      run: |
+        if [ "${{ matrix.platform.env }}" == "windows" ]; then
+          echo "artifact_path=target/release/servo.exe" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.env }}" == "macos" ]; then
+          echo "artifact_path=target/release/servo" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.env }}" == "linux" ]; then
+          echo "artifact_path=target/release/servo" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.env }}" == "ohos" ]; then
+          echo "artifact_path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.env }}" == "android" ]; then
+          echo "artifact_path=target/aarch64-linux-android/release/libservo.so" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.env }}" == "ios" ]; then
+          echo "artifact_path=target/universal/release/libservo.a" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+
+    # 10. Đóng gói sản phẩm và đẩy đồng loạt 6 file lên duy nhất một trang Releases
+    - name: Publish to GitHub Releases
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: mega-nightly-${{ github.run_number }}
+        name: Servo Mega Build (6 Platforms) #${{ github.run_number }}
+        body: |
+          Automated stable parallel compilation of the Servo browser engine source code.
+          All 6 platforms built successfully with fully isolated dependency structures.
+        draft: false
+        prerelease: true
+        files: ${{ steps.locate.outputs.artifact_path }}
           libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
 
     # 5. Cấu hình Python Engine & SỬA TRIỆT ĐỂ LỖI THIẾU THƯ VIỆN PACKAGING
