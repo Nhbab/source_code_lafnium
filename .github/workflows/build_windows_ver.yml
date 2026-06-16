@@ -1,76 +1,106 @@
-name: Build Latest Servo Browser (Windows)
+name: Servo Native Windows Desktop Build
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Runs automatically every day at midnight
-  workflow_dispatch: # Allows manual trigger anytime via the Actions tab
+    - cron: '0 0 * * *' # Automatically runs every day at midnight
+  workflow_dispatch: # Allows manual trigger anytime via Actions UI
 
 permissions:
-  contents: write # Crucial: Gives GitHub Actions permission to push code and create releases
+  contents: write # Grants write permissions to push code and upload release artifacts
 
 jobs:
   build-windows:
     runs-on: windows-latest
     
     steps:
-    # 1. Check out your own repository using a write-access token
+    # 1. Clear massive pre-installed software to ensure the free runner has enough SSD space
+    - name: Free Disk Space on Runner
+      shell: powershell
+      run: |
+        Write-Host "Initial disk space status:"
+        Get-Volume
+        Remove-Item -Recurse -Force "C:\Program Files\Android" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Ruby" -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force "C:\hostedtoolcache\windows\Go" -ErrorAction SilentlyContinue
+        Write-Host "Post-cleanup disk space status:"
+        Get-Volume
+
+    # 2. Checkout your project workspace using write-access token
     - name: Checkout Local Repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0
+        fetch-depth: 0 # Fetches full history so git merge works cleanly
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    # 2. Sync your repository branch with official Servo code
-    - name: Fetch and Merge Latest Upstream Servo Changes
+    # 3. Synchronize safely with official Servo (Fixes Git Exit Code 128)
+    - name: Fetch and Merge Upstream Servo
       shell: bash
       run: |
         git config --global user.name "github-actions[bot]"
-        git config --global user.email "41898282+github-actions[bot]@://github.com"
-        
-        git remote add upstream https://github.com
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git remote add upstream https://github.com || true
         git fetch upstream
-        
-        # Merge official servo main branch changes
-        git merge upstream/main --allow-unrelated-histories -m "Automated sync with upstream Servo" || echo "Already up to date"
+        git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync with upstream Servo" || echo "Merged"
 
-    # 3. Push the fresh Servo source code back into your own repository
+    # 4. Push updates back to your branch safely
     - name: Push Updated Source to Your Repo
       shell: bash
       run: |
-        git push origin HEAD:${{ github.ref_name }}
+        if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/${{ github.ref_name }})" ]; then
+          git push origin HEAD:${{ github.ref_name }}
+        else
+          echo "No new source code updates found to push."
+        fi
 
-    - name: Set up Python
+    # 5. Install Python packager tools required by Servo's modern build core
+    - name: Install Python & Package Managers
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        
+    - name: Install UV Package Manager
+      run: |
+        pip install uv
 
+    # 6. Install the Native Windows MSVC target for Rust
     - name: Set up Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: x86_64-pc-windows-msvc
 
+    # 7. Configure compilation cache to accelerate subsequent workflow runs
     - name: Configure Rust Cache
       uses: swatinem/rust-cache@v2
       with:
-        shared-key: "servo-windows-cache"
+        shared-key: "servo-windows-native-cache"
 
-    - name: Add Visual Studio Build Tools to Path
+    # 8. Configure exact C++ Visual Studio modules required by Servo's source code
+    - name: Set up MSVC & Windows SDK Components
       uses: microsoft/setup-msbuild@v2
 
-    - name: Run Windows Build Script
+    # 9. Execute the source code's native dependency setup
+    - name: Run Native Source Bootstrap
+      shell: cmd
+      run: |
+        :: This calls the repository's native dependency fetcher script
+        python mach bootstrap
+
+    # 10. Compile the Default Windows Native Target
+    - name: Run Native Windows Desktop Build
       shell: cmd
       run: |
         python mach build --release
 
-    # 4. Publish the compiled servo.exe directly to your GitHub Releases page
+    # 11. Publish the compiled desktop executable directly to your GitHub Releases page
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: nightly-${{ github.run_number }}
-        name: Servo Nightly Build #${{ github.run_number }}
+        tag_name: nightly-win-native-${{ github.run_number }}
+        name: Servo Windows Desktop Build #${{ github.run_number }}
         body: |
-          Automated compilation of the latest Servo browser engine source code.
-          Synced directly from upstream on: ${{ github.event.repository.updated_at }}
+          Automated compilation using official source code commands.
+          Built natively via: `python mach bootstrap` and `python mach build`
         draft: false
         prerelease: true
         files: target/release/servo.exe
