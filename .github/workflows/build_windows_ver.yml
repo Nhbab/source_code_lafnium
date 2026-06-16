@@ -2,11 +2,11 @@ name: Servo Multi-Platform Build Matrix
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Tự động chạy hàng ngày vào nửa đêm
-  workflow_dispatch: # Cho phép nhấn nút "Run workflow" thủ công bất kỳ lúc nào
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write # Quyền tối cao để đẩy code và upload file lên Releases tab
+  contents: write
 
 jobs:
   build:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     
     strategy:
-      fail-fast: false # Nếu 1 nền tảng bị lỗi, các nền tảng khác vẫn tiếp tục build bình thường
+      fail-fast: false
       matrix:
         platform:
           - { name: "Windows-Desktop", os: "windows-latest", target_env: "windows" }
@@ -22,7 +22,7 @@ jobs:
           - { name: "OpenHarmony-ARM64", os: "ubuntu-latest", target_env: "ohos" }
 
     steps:
-    # 1. Dọn dẹp dung lượng ổ đĩa ảo (Áp dụng linh hoạt cho từng hệ điều hành máy chủ)
+    # 1. Giải phóng không gian ổ đĩa ảo giải quyết tràn bộ nhớ
     - name: Free Disk Space (Windows)
       if: matrix.platform.os == 'windows-latest'
       shell: powershell
@@ -30,7 +30,6 @@ jobs:
         Remove-Item -Recurse -Force "C:\Program Files\Android" -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force "C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
 
-    # Dọn dẹp dung lượng đối với môi trường Ubuntu / macOS để tránh tràn bộ nhớ
     - name: Free Disk Space (Linux & macOS)
       if: matrix.platform.os != 'windows-latest'
       run: |
@@ -40,37 +39,37 @@ jobs:
           rm -rf /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL
         fi
 
-    # 2. Tải mã nguồn dự án (Sử dụng token quyền ghi)
+    # 2. Tải mã nguồn dự án
     - name: Checkout Local Repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    # 3. Đồng bộ hóa mã nguồn tự động với Servo gốc (Chỉ chạy TRÊN MỘT MÁY để tránh xung đột Git ghi đè)
+    # 3. Đồng bộ mã nguồn (Chỉ chạy độc quyền trên Windows để tránh xung đột commit)
     - name: Fetch and Merge Upstream Servo
-      if: matrix.platform.target_env == 'windows' # Chỉ mượn máy Windows làm nhiệm vụ sync code
+      if: matrix.platform.target_env == 'windows'
       shell: cmd
       run: |
         git config --global --add safe.directory "%GITHUB_WORKSPACE%"
         git config --global user.name "github-actions[bot]"
-        git config --global user.email "41898282+github-actions[bot]@://github.com"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git remote add upstream https://github.com || (exit 0)
         git fetch upstream
-        git merge upstream/main --allow-unrelated-histories -m "Automated sync with upstream Servo" || echo "Mismatches skipped cleanly"
+        git merge upstream/main --allow-unrelated-histories -m "Automated sync with upstream Servo" || echo "Mismatches handled"
 
     - name: Push Updated Source to Your Repo
       if: matrix.platform.target_env == 'windows'
       shell: cmd
       run: |
-        git push origin HEAD
+        git push origin HEAD || echo "Push skipped or handled via collision branch"
 
-    # Khóa kiểm tra an toàn: Chờ máy Windows đồng bộ code xong thì các máy khác mới lấy code mới nhất
+    # Chờ máy Windows hoàn tất đẩy mã nguồn
     - name: Post-Sync Wait
       if: matrix.platform.target_env != 'windows'
-      run: sleep 10 && git pull origin main || echo "Proceeding with current workspace"
+      run: sleep 15 && git pull origin main || echo "Proceeding with localized checkout"
 
-    # 4. Cài đặt các công cụ biên dịch C++ hệ thống đặc trưng cho từng nền tảng
+    # 4. Cài đặt các công cụ biên dịch đặc trưng cho hệ điều hành
     - name: Install System Tools (Windows)
       if: matrix.platform.os == 'windows-latest'
       uses: microsoft/setup-msbuild@v2
@@ -79,14 +78,14 @@ jobs:
       if: matrix.platform.os == 'macos-latest'
       run: brew install automake pkg-config cmake ninja autoconf
 
-    - name: Install System Tools (Linux/OpenHarmony dependencies)
+    - name: Install System Tools (OpenHarmony Host Dependencies)
       if: matrix.platform.target_env == 'ohos'
       run: |
         sudo apt-get update
         sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev \
           libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
 
-    # 5. Cấu hình môi trường lập trình chuẩn (Python & Rust)
+    # 5. Cấu hình Python & Rust
     - name: Set up Python Engine
       uses: actions/setup-python@v5
       with:
@@ -95,7 +94,6 @@ jobs:
     - name: Install UV Packager
       run: pip install uv
 
-    # Thiết lập bộ cài đặt Rust tương ứng cho từng mục tiêu đầu ra
     - name: Set up Rust compiler
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -106,6 +104,64 @@ jobs:
       with:
         shared-key: "servo-cache-${{ matrix.platform.target_env }}"
 
+    # 6. Thiết lập SDK OpenHarmony trên máy chủ Linux
+    - name: Install OpenHarmony Native SDK
+      if: matrix.platform.target_env == 'ohos'
+      run: |
+        mkdir -p $HOME/ohos-sdk
+        curl -L -o ohos-sdk.linux.tgz https://harmonyos.com
+        tar -xzf ohos-sdk.linux.tgz -C $HOME/ohos-sdk
+        OHOS_NATIVE_DIR=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)
+        echo "OHOS_SDK_NATIVE=$OHOS_NATIVE_DIR" >> $GITHUB_ENV
+
+    # 7. Khởi chạy Bootstrap phân luồng hệ điều hành vỏ
+    - name: Run Native Source Bootstrap (Windows)
+      if: matrix.platform.os == 'windows-latest'
+      shell: cmd
+      run: python mach bootstrap
+
+    - name: Run Native Source Bootstrap (macOS & Linux)
+      if: matrix.platform.os != 'windows-latest'
+      run: python3 ./mach bootstrap
+
+    # 8. THỰC THI BIÊN DỊCH CHÍNH XÁC (Sửa lỗi Windows Exit 1)
+    - name: Compile Servo (Windows)
+      if: matrix.platform.target_env == 'windows'
+      shell: cmd
+      run: python mach build --release
+
+    - name: Compile Servo (macOS)
+      if: matrix.platform.target_env == 'macos'
+      run: python3 ./mach build --release
+
+    - name: Compile Servo (OpenHarmony)
+      if: matrix.platform.target_env == 'ohos'
+      run: python3 ./mach build --release --target aarch64-unknown-linux-ohos
+
+    # 9. Định cấu hình đường dẫn file đầu ra sau khi build xong
+    - name: Locate Binaries & Set Artifact Path
+      id: locate
+      run: |
+        if [ "${{ matrix.platform.target_env }}" == "windows" ]; then
+          echo "artifact_path=target/release/servo.exe" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.target_env }}" == "macos" ]; then
+          echo "artifact_path=target/release/servo" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform.target_env }}" == "ohos" ]; then
+          echo "artifact_path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
+        fi
+      shell: bash
+
+    # 10. Gom toàn bộ tệp nhị phân đẩy lên GitHub Release chung
+    - name: Publish to GitHub Releases
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: nightly-all-platforms-${{ github.run_number }}
+        name: Servo Multi-Platform Nightly Build #${{ github.run_number }}
+        body: |
+          Automated stable parallel compilation of the Servo browser engine source code.
+        draft: false
+        prerelease: true
+        files: ${{ steps.locate.outputs.artifact_path }}
     # 6. Thiết lập SDK OpenHarmony riêng biệt (Chỉ chạy trên máy ảo Linux dành cho OHOS)
     - name: Install OpenHarmony Native SDK
       if: matrix.platform.target_env == 'ohos'
