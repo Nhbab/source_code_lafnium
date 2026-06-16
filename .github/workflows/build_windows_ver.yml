@@ -24,7 +24,7 @@ jobs:
           git config --global --add safe.directory "*"
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@://github.com"
-          git remote add upstream https://github.com || true
+          git remote add upstream https://github.com/servo/servo || true
           git fetch upstream
           git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync" || echo "Merged"
 
