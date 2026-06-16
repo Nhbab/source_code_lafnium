@@ -451,8 +451,7 @@ servo-media = { path = "components/media/servo-media" }
 #
 # Or for mozjs:
 #
-mozjs = { path = "D:/biuihtml5full/mozjs/mozjs" }
-mozjs_sys = { path = "D:/biuihtml5full/mozjs/mozjs-sys" }
+
 #
 # Or for CSP crate:
 # content-security-policy = { path = "../rust-content-security-policy" }
