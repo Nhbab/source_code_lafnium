@@ -1,4 +1,4 @@
-name: Servo Mega Build (6 Platforms)
+name: Servo Mega Multi-Platform Build (6 Platforms)
 
 on:
   schedule:
@@ -10,102 +10,204 @@ permissions:
 
 jobs:
   sync-code:
-    name: Sync Upstream
+    name: Sync Source with Upstream Servo
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0, token: ${{ secrets.GITHUB_TOKEN }} }
-      - name: Git Sync
+      - name: Checkout Local Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch and Merge Upstream Servo
         run: |
           git config --global --add safe.directory "*"
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@://github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com || true
           git fetch upstream
-          git merge upstream/main --allow-unrelated-histories -X ours -m "Sync" || echo "Done"
-          git push origin HEAD:${{ github.ref_name }} || echo "Up to date"
+          git merge upstream/main --allow-unrelated-histories -X ours -m "Automated sync" || echo "Merged"
+
+      - name: Push Code Safely
+        run: |
+          git config --global --add safe.directory "*"
+          git push origin HEAD:${{ github.ref_name }} || echo "Already up to date"
 
   build:
-    name: Build ${{ matrix.p.name }}
+    name: Build for ${{ matrix.p.name }}
     needs: sync-code
     runs-on: ${{ matrix.p.os }}
     strategy:
       fail-fast: false
       matrix:
         p:
-          - { name: "Win", os: "windows-latest", env: "windows", run: "python mach build --release" }
-          - { name: "Mac", os: "macos-latest", env: "macos", run: "python3 ./mach build --release" }
-          - { name: "Lin", os: "ubuntu-latest", env: "linux", run: "python3 ./mach build --release" }
-          - { name: "Ohos", os: "ubuntu-latest", env: "ohos", run: "python3 ./mach build --release --target aarch64-unknown-linux-ohos" }
-          - { name: "And", os: "ubuntu-latest", env: "android", run: "python3 ./mach build --release --android" }
-          - { name: "iOS", os: "macos-latest", env: "ios", run: "python3 ./mach build --release --ios" }
+          - { name: "Windows-Desktop", os: "windows-latest", env: "windows", run: "python mach build --release" }
+          - { name: "macOS-Desktop", os: "macos-latest", env: "macos", run: "python3 ./mach build --release" }
+          - { name: "Linux-Desktop", os: "ubuntu-latest", env: "linux", run: "python3 ./mach build --release" }
+          - { name: "OpenHarmony-ARM64", os: "ubuntu-latest", env: "ohos", run: "python3 ./mach build --release --target aarch64-unknown-linux-ohos" }
+          - { name: "Android-APK", os: "ubuntu-latest", env: "android", run: "python3 ./mach build --release --android" }
+          - { name: "iOS-Framework", os: "macos-latest", env: "ios", run: "python3 ./mach build --release --ios" }
+
     steps:
-      - name: Disk Clean (Win)
+      - name: Free Disk Space (Windows Host)
         if: matrix.p.os == 'windows-latest'
         shell: powershell
-        run: Remove-Item -Recurse -Force "C:\Program Files\Android","C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
-      - name: Disk Clean (Unix)
+        run: |
+          Remove-Item -Recurse -Force "C:\Program Files\Android" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "C:\Microsoft\AndroidNDK" -ErrorAction SilentlyContinue
+
+      - name: Free Disk Space (Linux & macOS Hosts)
         if: matrix.p.os != 'windows-latest'
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL || true
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 1 }
-      - name: Tools (Win)
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            rm -rf /Users/runner/Library/Android/sdk /opt/hostedtoolcache/CodeQL
+          fi
+
+      - name: Checkout Code Workspace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install System Environment Core (Windows Host)
         if: matrix.p.os == 'windows-latest'
         uses: microsoft/setup-msbuild@v2
-      - name: Tools (Mac)
+
+      - name: Install System Environment Core (macOS Hosts)
         if: matrix.p.os == 'macos-latest'
         run: brew install automake pkg-config cmake ninja autoconf
-      - name: Tools (Lin)
+
+      - name: Install System Environment Core (Linux Hosts)
         if: matrix.p.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - name: Py Deps
-        run: pip install uv packaging
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: 'x86_64-pc-windows-msvc aarch64-unknown-linux-ohos aarch64-linux-android armv7-linux-androideabi aarch64-apple-ios x86_64-apple-ios' }
-      - uses: swatinem/rust-cache@v2
-        with: { shared-key: "servo-${{ matrix.p.env }}" }
-      - name: OHOS SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl python3-pip libx11-dev libgl1-mesa-dev \
+            libosmesa6-dev libfontconfig1-dev libssl-dev pkg-config
+
+      - name: Setup Python Runtime Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Base Python Modules
+        run: |
+          pip install uv
+          pip install packaging
+
+      - name: Inject Rust Compilers Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            x86_64-pc-windows-msvc
+            aarch64-unknown-linux-ohos
+            aarch64-linux-android
+            armv7-linux-androideabi
+            aarch64-apple-ios
+            x86_64-apple-ios
+
+      - name: Configure Action Cache Engine
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "servo-production-cache-${{ matrix.p.env }}"
+
+      - name: Install OpenHarmony Native Toolchain NDK
         if: matrix.p.env == 'ohos'
         run: |
-          mkdir -p $HOME/ohos-sdk && curl -L -o ohos.tgz https://harmonyos.com
-          tar -xzf ohos.tgz -C $HOME/ohos-sdk && echo "OHOS_SDK_NATIVE=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)" >> $GITHUB_ENV
-      - name: NDK SDK
+          mkdir -p $HOME/ohos-sdk
+          curl -L -o ohos-sdk.linux.tgz https://harmonyos.com
+          tar -xzf ohos-sdk.linux.tgz -C $HOME/ohos-sdk
+          echo "OHOS_SDK_NATIVE=$(find $HOME/ohos-sdk -type d -name "native" | head -n 1)" >> $GITHUB_ENV
+
+      - name: Install Android Native Toolchain NDK
         if: matrix.p.env == 'android'
         uses: nttld/setup-ndk@v1
-        with: { ndk-version: r26b }
-      - name: Bootstrap
+        with:
+          ndk-version: r26b
+
+      - name: Run Native Architecture Bootstrap Core
         run: |
           python -m pip install packaging || pip3 install packaging
           python mach bootstrap || python3 ./mach bootstrap
         shell: ${{ matrix.p.os == 'windows-latest' && 'cmd' || 'bash' }}
-      - name: Compile
+
+      - name: Run Native System Compiler Execution
         run: ${{ matrix.p.run }}
         shell: ${{ matrix.p.os == 'windows-latest' && 'cmd' || 'bash' }}
-      - name: Pathing
+
+      - name: Process Resulting File Targets Layout
         id: locate
         run: |
-          if [ "${{ matrix.p.env }}" == "windows" ]; then echo "path=target/release/servo.exe" >> $GITHUB_OUTPUT
-          elif [ "${{ matrix.p.env }}" == "macos" ] || [ "${{ matrix.p.env }}" == "linux" ]; then echo "path=target/release/servo" >> $GITHUB_OUTPUT
-          elif [ "${{ matrix.p.env }}" == "ohos" ]; then echo "path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
-          elif [ "${{ matrix.p.env }}" == "android" ]; then echo "path=target/aarch64-linux-android/release/libservo.so" >> $GITHUB_OUTPUT
-          elif [ "${{ matrix.p.env }}" == "ios" ]; then echo "path=target/universal/release/libservo.a" >> $GITHUB_OUTPUT
+          if [ "${{ matrix.p.env }}" == "windows" ]; then
+            echo "path=target/release/servo.exe" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "macos" ] || [ "${{ matrix.p.env }}" == "linux" ]; then
+            echo "path=target/release/servo" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "ohos" ]; then
+            echo "path=target/aarch64-unknown-linux-ohos/release/libservoshell.so" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "android" ]; then
+            echo "path=target/aarch64-linux-android/release/libservo.so" >> $GITHUB_OUTPUT
+          elif [ "${{ matrix.p.env }}" == "ios" ]; then
+            echo "path=target/universal/release/libservo.a" >> $GITHUB_OUTPUT
           fi
         shell: bash
-      - uses: actions/upload-artifact@v4
-        with: { name: "srv-${{ matrix.p.env }}", path: "${{ steps.locate.outputs.path }}" }
+
+      - name: Stage Artifact to Multi-Node Storage Caches
+        uses: actions/upload-artifact@v4
+        with:
+          name: srv-${{ matrix.p.env }}
+          path: ${{ steps.locate.outputs.path }}
 
   publish-release:
-    name: Deploy App Containers
+    name: Package & Deploy Finished Run Files
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - run: mkdir -p ./in ./out ./apk/lib/arm64-v8a ./hap/libs/arm64-v8a ./ios.app
-      - uses: actions/download-artifact@v4
-        with: { path: ./in }
-      - name: Package Executables
+      - name: Initialize Packing Storage Hierarchy
         run: |
+          mkdir -p ./in ./out
+          mkdir -p ./apk/lib/arm64-v8a
+          mkdir -p ./hap/libs/arm64-v8a
+          mkdir -p ./ios.app
+
+      - name: Download Staged Files from Pipeline Caches
+        uses: actions/download-artifact@v4
+        with:
+          path: ./in
+
+      - name: Package Windows Binary
+        run: cp ./in/srv-windows/servo.exe ./out/servo-windows-x64.exe || true
+
+      - name: Package macOS Binary
+        run: cp ./in/srv-macos/servo ./out/servo-mac-arm64 || true
+
+      - name: Package Linux Binary
+        run: cp ./in/srv-linux/servo ./out/servo-linux-x64 || true
+
+      - name: Package Android APK Container
+        run: |
+          cp ./in/srv-android/libservo.so ./apk/lib/arm64-v8a/ || true
+          cd apk && zip -r ../out/servo-android-deployment.apk ./* && cd ..
+
+      - name: Package OpenHarmony HAP Container
+        run: |
+          cp ./in/srv-ohos/libservoshell.so ./hap/libs/arm64-v8a/ || true
+          cd hap && zip -r ../out/servo-openharmony-app.hap ./* && cd ..
+
+      - name: Package iOS Bundle
+        run: |
+          cp ./in/srv-ios/libservo.a ./ios.app/ || true
+          zip -r ./out/servo-ios-bundle.app.zip ./ios.app
+
+      - name: Deploy Live Assets to Release Column
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: live-release-${{ github.run_number }}
+          name: Servo Engine Production Executables #${{ github.run_number }}
+          body: |
+            Automated production build for all target environments.
+          draft: false
+          prerelease: false
+          files: out/*
           cp ./in/srv-windows/servo.exe ./out/servo-win.exe || true
           cp ./in/srv-macos/servo ./out/servo-mac || true
           cp ./in/srv-linux/servo ./out/servo-lin || true
