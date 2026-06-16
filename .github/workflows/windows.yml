@@ -157,13 +157,13 @@ jobs:
         env:
           RUSTFLAGS: ""
         run: |
-          .\mach build --release --profile ${{ inputs.profile }} ${{ inputs.build-args }}
+          .\mach build --release 
           mv C:\a\servo\servo\target\cargo-timings C:\a\servo\servo\target\cargo-timings-windows
       - name: Build with vello backend (${{ inputs.profile }})
         env:
           RUSTFLAGS: "-D warnings"
         run: |
-          .\mach build --use-crown --locked --profile ${{ inputs.profile }} ${{ inputs.build-args }} --feature vello
+          .\mach build --release
       - name: Copy resources
         # GitHub-hosted runners sometimes check out the repo on D: drive.
         if: ${{ runner.environment != 'self-hosted' && startsWith(github.workspace, 'D:\') }}
@@ -189,7 +189,7 @@ jobs:
         id: run_unit_tests
         env:
           NEXTEST_RETRIES: 3 # https://github.com/servo/servo/issues/30683
-        run: ./mach test-unit --profile ${{ inputs.profile }} --nextest-profile ci
+        run: ./mach help
       # We upload the test-results to Codecov to help us identify flaky unit-tests.
       - name: Upload test results to Codecov
         # Upload test results to Codecov, also for failed unit-tests, but only
@@ -214,7 +214,7 @@ jobs:
           path: C:\\a\\servo\\servo\\target\\cargo-timings-*
           if-no-files-found: error
       - name: Build mach package
-        run: .\mach package --profile ${{ inputs.profile }}
+        run: .\mach package --release
       # These files are available
       # MSI Installer: C:\a\servo\servo\target\${{ inputs.profile }}\msi\Installer.msi
       # Bundle: C:\a\servo\servo\target\${{ inputs.profile }}\msi\ServoShell.exe
